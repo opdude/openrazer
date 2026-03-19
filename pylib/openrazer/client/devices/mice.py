@@ -263,3 +263,38 @@ class RazerMouse(__RazerDevice):
             self._dbus_interfaces['scroll'].setScrollSmartReel(enabled)
         else:
             raise NotImplementedError()
+
+    @property
+    def scroll_profile(self) -> int:
+        """
+        Get the device's scroll profile
+
+        :return: Scroll profile (0=Standard, 1=Distinct, 2=Precise, 3=Adaptive, 4=Smooth, 5=Custom)
+        :rtype: int
+
+        :raises NotImplementedError: If function is not supported
+        """
+        if self.has('scroll_profile'):
+            return int(self._dbus_interfaces['scroll'].getScrollProfile())
+        else:
+            raise NotImplementedError()
+
+    @scroll_profile.setter
+    def scroll_profile(self, profile: int) -> None:
+        """
+        Set the device's scroll profile
+
+        :param profile: Scroll profile (0=Standard, 1=Distinct, 2=Precise, 3=Adaptive, 4=Smooth, 5=Custom)
+        :type profile: int
+
+        :raises ValueError: If profile is not in range 0-5
+        :raises NotImplementedError: If function is not supported
+        """
+        if self.has('scroll_profile'):
+            if not isinstance(profile, int):
+                raise ValueError("Profile must be an integer")
+            if profile < 0 or profile > 5:
+                raise ValueError("Profile must be 0-5")
+            self._dbus_interfaces['scroll'].setScrollProfile(profile)
+        else:
+            raise NotImplementedError()
