@@ -3343,6 +3343,103 @@ static ssize_t razer_attr_write_scroll_custom_profile(struct device *dev, struct
     return err ? err : count;
 }
 
+
+/* Five (x, y) percent points: x runs 0, left, peak, right, 100 and must not go back. */
+static bool razer_scroll_slider_points_valid(const unsigned char *points)
+{
+    unsigned char i;
+
+    for (i = 0; i < 10; i++)
+        if (points[i] > 100)
+            return false;
+    for (i = 2; i < 10; i += 2)
+        if (points[i] < points[i - 2])
+            return false;
+
+    return points[0] == 0 && points[8] == 100;
+}
+
+static bool razer_scroll_sliders_valid(const unsigned char *sliders)
+{
+    unsigned char i;
+
+    if (sliders[0] > 1)
+        return false;
+    for (i = 1; i < 5; i += 2)
+        if (sliders[i] < 8 || sliders[i] > 96 || sliders[i + 1] > 100)
+            return false;
+
+    return razer_scroll_slider_points_valid(&sliders[5]) && razer_scroll_slider_points_valid(&sliders[15]);
+}
+
+/**
+ * Write device file "scroll_custom_sliders"
+ *
+ * Sets the custom profile's slider state shown by Synapse's curve editor; it does not change
+ * the curve itself. 25 bytes: linked (0 or 1), up steps, up tension, down steps, down tension
+ * (steps 8 to 96, tension 0 to 100), then five (x, y) percent points for up and for down.
+ */
+static ssize_t razer_attr_write_scroll_custom_sliders(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    struct razer_mouse_device *device = dev_get_drvdata(dev);
+    struct razer_report request = {0};
+    struct razer_report response = {0};
+    int err;
+
+    if (count != RAZER_SCROLL_SLIDERS_SIZE || !razer_scroll_sliders_valid((const unsigned char *)buf))
+        return -EINVAL;
+
+    request = razer_chroma_misc_set_scroll_curve_sliders(RAZER_SCROLL_PROFILE_CUSTOM, (const unsigned char *)buf);
+    request.transaction_id.id = 0x1f;
+
+    mutex_lock(&device->scroll_lock);
+    err = razer_send_payload(device, &request, &response);
+    if (!err) {
+        memcpy(device->scroll_sliders, buf, RAZER_SCROLL_SLIDERS_SIZE);
+        device->scroll_sliders_written = true;
+    }
+    mutex_unlock(&device->scroll_lock);
+
+    return err ? err : count;
+}
+
+/**
+ * Read device file "scroll_custom_sliders"
+ */
+static ssize_t razer_attr_read_scroll_custom_sliders(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct razer_mouse_device *device = dev_get_drvdata(dev);
+    struct razer_report request = {0};
+    struct razer_report response = {0};
+    const unsigned char *args = response.arguments;
+    int err = 0;
+
+    mutex_lock(&device->scroll_lock);
+    if (device->scroll_sliders_written) {
+        memcpy(buf, device->scroll_sliders, RAZER_SCROLL_SLIDERS_SIZE);
+        goto out;
+    }
+
+    request = razer_chroma_misc_get_scroll_curve_sliders();
+    request.transaction_id.id = 0x1f;
+
+    err = razer_send_payload(device, &request, &response);
+    if (err)
+        goto out;
+
+    if (args[1] != 0x28 || args[2] != RAZER_SCROLL_PROFILE_CUSTOM || args[19] != 0xff || args[20] != 0xff ||
+        args[31] != 0xff || args[32] != 0xff) {
+        err = -EBADMSG;
+        goto out;
+    }
+
+    memcpy(buf, &args[4], 15);
+    memcpy(&buf[15], &args[21], 10);
+out:
+    mutex_unlock(&device->scroll_lock);
+    return err ? err : RAZER_SCROLL_SLIDERS_SIZE;
+}
+
 static ssize_t razer_attr_write_tilt_hwheel(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
     struct razer_mouse_device *device = dev_get_drvdata(dev);
@@ -6329,6 +6426,7 @@ static DEVICE_ATTR(scroll_smart_reel,         0660, razer_attr_read_scroll_smart
 static DEVICE_ATTR(scroll_profile,            0660, razer_attr_read_scroll_profile,        razer_attr_write_scroll_profile);
 static DEVICE_ATTR(scroll_profiles_enabled,   0660, razer_attr_read_scroll_profiles_enabled, razer_attr_write_scroll_profiles_enabled);
 static DEVICE_ATTR(scroll_custom_profile,     0220, NULL,                                  razer_attr_write_scroll_custom_profile);
+static DEVICE_ATTR(scroll_custom_sliders,     0660, razer_attr_read_scroll_custom_sliders,   razer_attr_write_scroll_custom_sliders);
 
 static DEVICE_ATTR(tilt_hwheel,               0660, razer_attr_read_tilt_hwheel,           razer_attr_write_tilt_hwheel);
 static DEVICE_ATTR(tilt_repeat,               0660, razer_attr_read_tilt_repeat,           razer_attr_write_tilt_repeat);
@@ -7574,6 +7672,7 @@ static int razer_mouse_probe(struct hid_device *hdev, const struct hid_device_id
             CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_scroll_profile);
             CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_scroll_profiles_enabled);
             CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_scroll_custom_profile);
+            CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_scroll_custom_sliders);
 
             CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_charge_level);
             CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_charge_status);
@@ -8781,6 +8880,7 @@ static void razer_mouse_disconnect(struct hid_device *hdev)
             device_remove_file(&hdev->dev, &dev_attr_scroll_profile);
             device_remove_file(&hdev->dev, &dev_attr_scroll_profiles_enabled);
             device_remove_file(&hdev->dev, &dev_attr_scroll_custom_profile);
+            device_remove_file(&hdev->dev, &dev_attr_scroll_custom_sliders);
 
             device_remove_file(&hdev->dev, &dev_attr_charge_level);
             device_remove_file(&hdev->dev, &dev_attr_charge_status);

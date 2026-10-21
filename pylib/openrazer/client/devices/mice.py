@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+from typing import Any
+
 from openrazer.client.devices import RazerDevice as __RazerDevice
 
 
@@ -343,3 +345,60 @@ class RazerMouse(__RazerDevice):
             self._dbus_interfaces['scroll'].setScrollCustomProfile(up, down, speed)
         else:
             raise NotImplementedError()
+
+    def set_scroll_custom_sliders(self, steps: int, up_tension: int, up_points: list[tuple[int, int]],
+                                  down_tension: int | None = None, down_points: list[tuple[int, int]] | None = None) -> None:
+        """
+        Set the custom HyperScroll profile (6) the way Synapse's curve editor does
+
+        Without down_tension and down_points, scrolling down mirrors scrolling up and Synapse shows the curves linked.
+
+        :param steps: Notches per wheel turn, 8 to 96
+        :type steps: int
+
+        :param up_tension: Strength of the scroll up curve, 0 to 100
+        :type up_tension: int
+
+        :param up_points: Five (x, y) percent points: start (x 0), left handle, peak, right handle, end (x 100)
+        :type up_points: list of (int, int)
+
+        :param down_tension: Strength of the scroll down curve, 0 to 100
+        :type down_tension: int or None
+
+        :param down_points: Five (x, y) percent points for scrolling down
+        :type down_points: list of (int, int) or None
+
+        :raises NotImplementedError: If function is not supported
+        """
+        if not self.has('scroll_custom_sliders'):
+            raise NotImplementedError()
+
+        linked = down_tension is None and down_points is None
+        if down_tension is None:
+            down_tension = up_tension
+        if down_points is None:
+            down_points = [(100 - x, y) for x, y in reversed(up_points)]
+
+        self._dbus_interfaces['scroll'].setScrollCustomSliders(linked, steps, up_tension, up_points, down_tension, down_points)
+
+    def get_scroll_custom_sliders(self) -> dict[str, Any]:
+        """
+        Get the custom HyperScroll profile's settings as last saved by Synapse or set_scroll_custom_sliders
+
+        :return: Dict with linked, steps, up_tension, up_points, down_tension and down_points
+        :rtype: dict
+
+        :raises NotImplementedError: If function is not supported
+        """
+        if not self.has('scroll_custom_sliders'):
+            raise NotImplementedError()
+
+        linked, steps, up_tension, up_points, down_tension, down_points = self._dbus_interfaces['scroll'].getScrollCustomSliders()
+        return {
+            'linked': bool(linked),
+            'steps': int(steps),
+            'up_tension': int(up_tension),
+            'up_points': [(int(x), int(y)) for x, y in up_points],
+            'down_tension': int(down_tension),
+            'down_points': [(int(x), int(y)) for x, y in down_points],
+        }

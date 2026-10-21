@@ -162,6 +162,8 @@ struct razer_report razer_chroma_misc_set_scroll_curve_header(unsigned char prof
         unsigned short up_points, unsigned short down_points, unsigned short speed_points);
 struct razer_report razer_chroma_misc_set_scroll_curve_points(unsigned char profile, unsigned char segment, unsigned short offset,
         const unsigned char *points, unsigned char count);
+struct razer_report razer_chroma_misc_set_scroll_curve_sliders(unsigned char profile, const unsigned char *sliders);
+struct razer_report razer_chroma_misc_get_scroll_curve_sliders(void);
 
 struct razer_report razer_chroma_misc_get_hyperpolling_wireless_dongle_indicator_led_mode(void);
 struct razer_report razer_chroma_misc_set_hyperpolling_wireless_dongle_indicator_led_mode(unsigned char mode);

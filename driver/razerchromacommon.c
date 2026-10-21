@@ -1743,6 +1743,43 @@ struct razer_report razer_chroma_misc_set_scroll_curve_points(unsigned char prof
 }
 
 /**
+ * Set the Synapse slider state of a HyperScroll curve profile (Naga V2 Pro)
+ *
+ * The device stores it for Synapse's editor but does not use it. sliders is
+ * linked, up steps, up tension, down steps, down tension, then five (x, y) percent
+ * points per direction: start, left handle, peak, right handle, end.
+ */
+struct razer_report razer_chroma_misc_set_scroll_curve_sliders(unsigned char profile, const unsigned char *sliders)
+{
+    struct razer_report report = get_razer_report(0x15, 0x09, 0x50);
+
+    report.arguments[0] = VARSTORE;
+    report.arguments[1] = 0x28;
+    report.arguments[2] = profile;
+    report.arguments[3] = 0x01;
+    memcpy(&report.arguments[4], sliders, 15);
+    report.arguments[19] = 0xff;
+    report.arguments[20] = 0xff;
+    memcpy(&report.arguments[21], &sliders[15], 10);
+    report.arguments[31] = 0xff;
+    report.arguments[32] = 0xff;
+
+    return report;
+}
+
+/**
+ * Get the Synapse slider state of the HyperScroll curve profile (Naga V2 Pro)
+ */
+struct razer_report razer_chroma_misc_get_scroll_curve_sliders(void)
+{
+    struct razer_report report = get_razer_report(0x15, 0x89, 0x50);
+
+    report.arguments[0] = VARSTORE;
+
+    return report;
+}
+
+/**
  * Get LED mode for HyperPolling Wireless Dongle
  */
 struct razer_report razer_chroma_misc_get_hyperpolling_wireless_dongle_indicator_led_mode(void)

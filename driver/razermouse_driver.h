@@ -137,12 +137,16 @@
 #define RAZER_VIPER_MOUSE_RECEIVER_WAIT_US 59900
 
 #define RAZER_MOUSE_MAX_DPI_STAGES 5
+#define RAZER_SCROLL_SLIDERS_SIZE 25
 
 struct razer_mouse_device {
     struct hid_device *hdev;
     struct mutex lock;
     /* Serialises multi-report HyperScroll updates; lock is taken per report. */
     struct mutex scroll_lock;
+    /* The device only reports slider writes back after a power cycle, so keep the last one. */
+    unsigned char scroll_sliders[RAZER_SCROLL_SLIDERS_SIZE];
+    bool scroll_sliders_written;
 
     struct input_dev *input;
     struct hrtimer repeat_timer;

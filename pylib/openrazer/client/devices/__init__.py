@@ -79,6 +79,7 @@ class RazerDevice(object):
             'scroll_profile': self._has_feature('razer.device.scroll', ('getScrollProfile', 'setScrollProfile')),
             'scroll_profiles_enabled': self._has_feature('razer.device.scroll', ('getScrollProfilesEnabled', 'setScrollProfilesEnabled')),
             'scroll_custom_profile': self._has_feature('razer.device.scroll', 'setScrollCustomProfile'),
+            'scroll_custom_sliders': self._has_feature('razer.device.scroll', ('getScrollCustomSliders', 'setScrollCustomSliders')),
 
             # Default device is a chroma so lighting capabilities
             'lighting': self._has_feature('razer.device.lighting.chroma'),
@@ -255,7 +256,8 @@ class RazerDevice(object):
         if self.has('lighting_profile_led_red') or self.has('lighting_profile_led_green') or self.has('lighting_profile_led_blue'):
             self._dbus_interfaces['profile_led'] = _dbus.Interface(self._dbus, "razer.device.lighting.profile_led")
         if self.has('scroll_mode') or self.has('scroll_acceleration') or self.has('scroll_smart_reel') or \
-                self.has('scroll_profile') or self.has('scroll_profiles_enabled') or self.has('scroll_custom_profile'):
+                self.has('scroll_profile') or self.has('scroll_profiles_enabled') or self.has('scroll_custom_profile') or \
+                self.has('scroll_custom_sliders'):
             self._dbus_interfaces['scroll'] = _dbus.Interface(self._dbus, "razer.device.scroll")
 
     def _get_available_features(self) -> dict[str, list[str]]:

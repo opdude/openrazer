@@ -114,6 +114,7 @@ declare -A files_metadata=(
     ["scroll_profile"]="rw;1"
     ["scroll_profiles_enabled"]="rw;63"
     ["scroll_custom_profile"]="w;"
+    ["scroll_custom_sliders"]="rw;0x0130323032000000632e646263640000000363366464636400"
     ["tilt_hwheel"]="rw;0"
     ["tilt_repeat"]="rw;0"
     ["tilt_repeat_delay"]="rw;0"

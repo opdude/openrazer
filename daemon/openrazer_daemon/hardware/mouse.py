@@ -1024,6 +1024,7 @@ class RazerNagaV2ProWired(__RazerDeviceBrightnessSuspend):
                'get_battery', 'is_charging', 'get_idle_time', 'set_idle_time', 'get_low_battery_threshold', 'set_low_battery_threshold',
                # Scroll wheel
                'get_scroll_acceleration', 'set_scroll_acceleration', 'get_scroll_profile', 'set_scroll_profile', 'get_scroll_profiles_enabled', 'set_scroll_profiles_enabled', 'set_scroll_custom_profile',
+               'get_scroll_custom_sliders', 'set_scroll_custom_sliders',
                # Logo
                'get_logo_brightness', 'set_logo_brightness',
                'set_logo_wave', 'set_logo_static', 'set_logo_spectrum', 'set_logo_none', 'set_logo_reactive', 'set_logo_breath_random', 'set_logo_breath_single', 'set_logo_breath_dual',
