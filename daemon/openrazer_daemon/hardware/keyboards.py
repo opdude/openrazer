@@ -570,7 +570,15 @@ class RazerHuntsmanV2(_RippleKeyboard):
                'get_macro_effect', 'set_macro_effect', 'get_macros', 'delete_macro', 'add_macro',
                'get_poll_rate', 'set_poll_rate', 'get_supported_poll_rates', 'get_keyswitch_optimization', 'set_keyswitch_optimization',
                'set_starlight_random_effect', 'set_starlight_single_effect', 'set_starlight_dual_effect',
-               'set_ripple_effect', 'set_ripple_effect_random_colour']
+               'set_ripple_effect', 'set_ripple_effect_random_colour',
+               # Onboard keys and macros
+               'get_onboard_keys', 'get_key_action', 'set_key_action',
+               'add_onboard_macro', 'delete_onboard_macro', 'get_onboard_macros', 'get_onboard_macro_storage']
+
+    # Key ids (IBM key positions) the keyboard answers for, apart from Fn (59)
+    ONBOARD_KEYS = (*range(1, 59), 60, 61, 62, 64, 75, 76, 79, 80, 81, 83, 84, 85, 86, *range(89, 94), *range(95, 109),
+                    110, *range(112, 128), 129, *range(150, 155), *range(160, 165), *range(169, 176), 200, 201, 202,
+                    204, 205, 206)
 
     DEVICE_IMAGE = "https://dl.razerzone.com/src/5642/5642-1-en-v1.png"
 

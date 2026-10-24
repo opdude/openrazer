@@ -79,6 +79,8 @@ Additional per-device sections can be defined with the name "Device:XXXX" where 
 .RS 4
 This flag specifies an override whether the device should be switched into "driver mode" (as opposed to keeping it in "device mode").\& Ideally the OpenRazer stack should support all functionality in software and support the devices being in driver mode, but that'\&s not the case for a wide variety of devices yet, especially mice.\& However some users may want to explicitly force a device into driver mode to enable some functionality like horizontal scrolling.\&
 .PP
+Key bindings and macros stored on the device itself (the onboard key and macro functions, e.g.\& on the Huntsman V2) only act while the device is in device mode, so set this to False to use them while the daemon runs.\&
+.PP
 .RE
 .SH SEE ALSO
 .PP

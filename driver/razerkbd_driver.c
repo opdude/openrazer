@@ -4905,6 +4905,240 @@ static ssize_t razer_attr_read_key_alt_f4(struct device *dev, struct device_attr
 }
 
 /**
+ * Send an onboard memory command and wait until the keyboard has finished it
+ *
+ * Creating a macro is answered busy at first; a command sent before the busy clears is lost.
+ * Like Synapse, poll the response again without resending the command.
+ */
+static int razer_onboard_send(struct razer_kbd_device *device, struct razer_report *request, struct razer_report *response)
+{
+    struct usb_device *usb_dev = hid_to_usb_dev(device->hdev);
+    uint report_index, response_index;
+    ulong wait;
+    int tries, err;
+
+    err = razer_send_payload(device, request, response);
+    razer_get_report_params(usb_dev, &report_index, &response_index, &wait);
+    for (tries = 0; !err && response->status == RAZER_CMD_BUSY; tries++) {
+        if (tries == 40)
+            return -EBUSY;
+        fsleep(25000);
+        mutex_lock(&device->lock);
+        err = usb_control_msg_recv(usb_dev, 0, HID_REQ_GET_REPORT, USB_TYPE_CLASS | USB_RECIP_INTERFACE | USB_DIR_IN,
+                                   0x300, response_index, response, sizeof(*response), USB_CTRL_SET_TIMEOUT, GFP_KERNEL);
+        mutex_unlock(&device->lock);
+        if (!err && (response->command_class != request->command_class || response->command_id.id != request->command_id.id))
+            return -EIO;
+    }
+    if (!err && response->status != RAZER_CMD_SUCCESSFUL)
+        return -EIO;
+    return err;
+}
+
+/**
+ * Write device file "key_action"
+ *
+ * 3 bytes <storage> <key> <layer> select the key that reading returns. 5-10 bytes
+ * <storage> <key> <layer> <type> <length> <data...> also set that key's action.
+ */
+static ssize_t razer_attr_write_key_action(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    struct razer_kbd_device *device = dev_get_drvdata(dev);
+    struct razer_report request = {0};
+    struct razer_report response = {0};
+    int err = 0;
+
+    if (count != 3 && (count < 5 || count > 10))
+        return -EINVAL;
+
+    mutex_lock(&device->onboard_lock);
+    if (count > 3) {
+        request = razer_chroma_misc_set_key_action(buf[0], buf[1], buf[2], (const unsigned char *)&buf[3], count - 3);
+        request.transaction_id.id = 0x1f;
+        err = razer_onboard_send(device, &request, &response);
+    }
+    if (!err)
+        memcpy(device->key_action_query, buf, 3);
+    mutex_unlock(&device->onboard_lock);
+
+    return err ? err : count;
+}
+
+/**
+ * Read device file "key_action"
+ *
+ * Returns 10 bytes <storage> <key> <layer> <type> <length> <data...> for the key last written
+ */
+static ssize_t razer_attr_read_key_action(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct razer_kbd_device *device = dev_get_drvdata(dev);
+    struct razer_report request = {0};
+    struct razer_report response = {0};
+    int err;
+
+    mutex_lock(&device->onboard_lock);
+    request = razer_chroma_misc_get_key_action(device->key_action_query[0],
+              device->key_action_query[1],
+              device->key_action_query[2]);
+    mutex_unlock(&device->onboard_lock);
+    request.transaction_id.id = 0x1f;
+
+    err = razer_onboard_send(device, &request, &response);
+    if (err)
+        return err;
+
+    memcpy(buf, response.arguments, 10);
+    return 10;
+}
+
+/**
+ * Write device file "macro"
+ *
+ * <u16 id> <event stream> creates macro id on the device and uploads its events. A failed
+ * upload deletes the partial macro again.
+ */
+static ssize_t razer_attr_write_macro(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    struct razer_kbd_device *device = dev_get_drvdata(dev);
+    struct razer_report request = {0};
+    struct razer_report response = {0};
+    unsigned short macro_id;
+    unsigned int size, offset, len;
+    int err;
+
+    if (count < 3)
+        return -EINVAL;
+
+    macro_id = ((unsigned char)buf[0] << 8) | (unsigned char)buf[1];
+    size = count - 2;
+
+    mutex_lock(&device->onboard_lock);
+    request = razer_chroma_misc_create_macro(macro_id, size);
+    request.transaction_id.id = 0x1f;
+    err = razer_onboard_send(device, &request, &response);
+    if (err)
+        goto out;
+
+    for (offset = 0; offset < size; offset += len) {
+        len = min(size - offset, 73u);
+        request = razer_chroma_misc_write_macro(macro_id, offset, (const unsigned char *)&buf[2 + offset], len);
+        request.transaction_id.id = 0x1f;
+        err = razer_onboard_send(device, &request, &response);
+        if (err)
+            break;
+    }
+
+    if (err) {
+        request = razer_chroma_misc_delete_macro(macro_id);
+        request.transaction_id.id = 0x1f;
+        if (razer_onboard_send(device, &request, &response))
+            hid_warn(device->hdev, "Failed to delete partial macro %04x\n", macro_id);
+    }
+
+out:
+    mutex_unlock(&device->onboard_lock);
+    return err ? err : count;
+}
+
+/**
+ * Write device file "macro_delete"
+ *
+ * Deletes the macro with the given id. Keys bound to it keep the binding.
+ */
+static ssize_t razer_attr_write_macro_delete(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    struct razer_kbd_device *device = dev_get_drvdata(dev);
+    struct razer_report request = {0};
+    struct razer_report response = {0};
+    unsigned short macro_id;
+    int err;
+
+    err = kstrtou16(buf, 0, &macro_id);
+    if (err < 0)
+        return err;
+
+    request = razer_chroma_misc_delete_macro(macro_id);
+    request.transaction_id.id = 0x1f;
+
+    mutex_lock(&device->onboard_lock);
+    err = razer_onboard_send(device, &request, &response);
+    mutex_unlock(&device->onboard_lock);
+    if (err)
+        return err;
+
+    return count;
+}
+
+/**
+ * Read device file "macro_list"
+ *
+ * Returns the ids of the stored macros as big-endian u16s
+ */
+static ssize_t razer_attr_read_macro_list(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct razer_kbd_device *device = dev_get_drvdata(dev);
+    struct razer_report request = {0};
+    struct razer_report response = {0};
+    unsigned int total, start, n, i;
+    ssize_t len = 0;
+    int err;
+
+    mutex_lock(&device->onboard_lock);
+    request = razer_chroma_misc_get_macro_count();
+    request.transaction_id.id = 0x1f;
+    err = razer_onboard_send(device, &request, &response);
+    if (err)
+        goto out;
+
+    total = min_t(unsigned int, (response.arguments[0] << 8) | response.arguments[1], PAGE_SIZE / 2);
+    for (start = 0; start < total; start += n) {
+        n = min(total - start, 38u);
+        request = razer_chroma_misc_get_macro_list(start, n);
+        request.transaction_id.id = 0x1f;
+        err = razer_onboard_send(device, &request, &response);
+        if (err)
+            goto out;
+
+        for (i = 0; i < n; i++) {
+            unsigned char *id = &response.arguments[4 + 2 * i];
+
+            if (id[0] || id[1]) {
+                buf[len++] = id[0];
+                buf[len++] = id[1];
+            }
+        }
+    }
+
+out:
+    mutex_unlock(&device->onboard_lock);
+    return err ? err : len;
+}
+
+/**
+ * Read device file "macro_storage"
+ *
+ * Returns the four fields of the storage report: "<max macros> <total bytes> <u32> <u32>"
+ */
+static ssize_t razer_attr_read_macro_storage(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct razer_kbd_device *device = dev_get_drvdata(dev);
+    struct razer_report request = razer_chroma_misc_get_macro_storage();
+    struct razer_report response = {0};
+    unsigned char *a = response.arguments;
+    int err;
+
+    request.transaction_id.id = 0x1f;
+    err = razer_onboard_send(device, &request, &response);
+    if (err)
+        return err;
+
+    return sysfs_emit(buf, "%u %u %u %u\n", (a[0] << 8) | a[1],
+                      ((u32)a[2] << 24) | (a[3] << 16) | (a[4] << 8) | a[5],
+                      ((u32)a[6] << 24) | (a[7] << 16) | (a[8] << 8) | a[9],
+                      ((u32)a[10] << 24) | (a[11] << 16) | (a[12] << 8) | a[13]);
+}
+
+/**
  * Set up the device driver files
 
  *
@@ -4928,6 +5162,11 @@ static DEVICE_ATTR(firmware_version,        0440, razer_attr_read_firmware_versi
 static DEVICE_ATTR(fn_toggle,               0220, NULL,                                       razer_attr_write_fn_toggle);
 static DEVICE_ATTR(poll_rate,               0660, razer_attr_read_poll_rate,                  razer_attr_write_poll_rate);
 static DEVICE_ATTR(keyswitch_optimization,  0660, razer_attr_read_keyswitch_optimization,     razer_attr_write_keyswitch_optimization);
+static DEVICE_ATTR(key_action,              0660, razer_attr_read_key_action,                 razer_attr_write_key_action);
+static DEVICE_ATTR(macro,                   0220, NULL,                                       razer_attr_write_macro);
+static DEVICE_ATTR(macro_delete,            0220, NULL,                                       razer_attr_write_macro_delete);
+static DEVICE_ATTR(macro_list,              0440, razer_attr_read_macro_list,                 NULL);
+static DEVICE_ATTR(macro_storage,           0440, razer_attr_read_macro_storage,              NULL);
 
 static DEVICE_ATTR(device_type,             0440, razer_attr_read_device_type,                NULL);
 static DEVICE_ATTR(device_mode,             0660, razer_attr_read_device_mode,                razer_attr_write_device_mode);
@@ -5441,6 +5680,7 @@ static void razer_kbd_init(struct razer_kbd_device *dev, struct hid_device *hdev
 
     // Initialise mutex
     mutex_init(&dev->lock);
+    mutex_init(&dev->onboard_lock);
     // Setup values
     dev->hdev = hdev;
     dev->usb_vid = usb_dev->descriptor.idVendor;
@@ -5643,8 +5883,14 @@ static int razer_kbd_probe(struct hid_device *hdev, const struct hid_device_id *
             CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_macro_led_effect);              // Change macro LED effect (static, flashing)
             break;
 
-        case USB_DEVICE_ID_RAZER_HUNTSMAN_V2_TENKEYLESS:
         case USB_DEVICE_ID_RAZER_HUNTSMAN_V2:
+            CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_key_action);                    // Onboard key action
+            CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_macro);                         // Upload onboard macro
+            CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_macro_delete);                  // Delete onboard macro
+            CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_macro_list);                    // List onboard macros
+            CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_macro_storage);                 // Onboard macro storage
+            fallthrough;
+        case USB_DEVICE_ID_RAZER_HUNTSMAN_V2_TENKEYLESS:
             CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_poll_rate);                     // Poll Rate
             CREATE_DEVICE_FILE(&hdev->dev, &dev_attr_keyswitch_optimization);        // Keyswitch Optimization
             fallthrough;
@@ -6195,8 +6441,14 @@ static void razer_kbd_disconnect(struct hid_device *hdev)
             device_remove_file(&hdev->dev, &dev_attr_macro_led_effect);              // Change macro LED effect (static, flashing)
             break;
 
-        case USB_DEVICE_ID_RAZER_HUNTSMAN_V2_TENKEYLESS:
         case USB_DEVICE_ID_RAZER_HUNTSMAN_V2:
+            device_remove_file(&hdev->dev, &dev_attr_key_action);                    // Onboard key action
+            device_remove_file(&hdev->dev, &dev_attr_macro);                         // Upload onboard macro
+            device_remove_file(&hdev->dev, &dev_attr_macro_delete);                  // Delete onboard macro
+            device_remove_file(&hdev->dev, &dev_attr_macro_list);                    // List onboard macros
+            device_remove_file(&hdev->dev, &dev_attr_macro_storage);                 // Onboard macro storage
+            fallthrough;
+        case USB_DEVICE_ID_RAZER_HUNTSMAN_V2_TENKEYLESS:
             device_remove_file(&hdev->dev, &dev_attr_poll_rate);                     // Poll Rate
             device_remove_file(&hdev->dev, &dev_attr_keyswitch_optimization);        // Keyswitch Optimization
             fallthrough;

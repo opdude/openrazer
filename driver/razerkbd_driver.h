@@ -175,6 +175,9 @@ struct razer_kbd_device {
     unsigned short usb_vid;
     unsigned short usb_pid;
 
+    struct mutex onboard_lock; // Serialises multi-report key and macro operations
+    unsigned char key_action_query[3]; // <storage> <key> <layer> read by key_action
+
     unsigned char block_keys[3];
     unsigned char left_alt_on;
 };
